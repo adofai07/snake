@@ -12,6 +12,7 @@ from collections import namedtuple, deque
 import atexit
 import matplotlib.pyplot as plt
 import datetime
+import imageio
 
 
 pygame.init()
@@ -36,33 +37,31 @@ COLOR_TAIL = (80, 80, 80)
 
 
 BLOCK_SIZE = 20
-WIDTH = 30
-HEIGHT = 20
-SHOW_SPEED = 15
+WIDTH = 17
+HEIGHT = 15
+SHOW_SPEED = 10
 
 
 MAX_MEMORY = 100_000
 BATCH_SIZE = 2048
 LEARNING_RATE = 0.0001
 GAMMA = 0.9
-MODEL_PATH = f"./snake_{HEIGHT}_{WIDTH}_v3_model.pth"
-SCORE_FILE = f"./highscore_{HEIGHT}_{WIDTH}_v3.txt"
+MODEL_PATH = f"./snake_{HEIGHT}_{WIDTH}_v4_model.pth"
+SCORE_FILE = f"./highscore_{HEIGHT}_{WIDTH}_v4.txt"
+GIF_PATH = f"./snake_{HEIGHT}_{WIDTH}_v4_game.gif"
 TRAIN_EVERY_N_GAMES = 10
 
 
 INITIAL_EPSILON = 1.0
+# INITIAL_EPSILON = 0.01
 FINAL_EPSILON = 0.01
-EPSILON_DECAY_GAMES = 67000
+EPSILON_DECAY_GAMES = 50000
 
 
 DECAY_RATE = (FINAL_EPSILON / INITIAL_EPSILON) ** (1 / EPSILON_DECAY_GAMES)
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-print(
-    f"Epsilon will decay over {EPSILON_DECAY_GAMES} games with a calculated rate of {DECAY_RATE:.8f}"
-)
 
 def timestamp(st: datetime.datetime, ed: datetime.datetime) -> str:
     elapsed = ed - st
@@ -72,6 +71,15 @@ def timestamp(st: datetime.datetime, ed: datetime.datetime) -> str:
     minutes = (total_seconds % 3600) // 60
     seconds = total_seconds % 60
     return f"{days:02}:{hours:02}:{minutes:02}:{seconds:02}"
+
+def make_gif(frames: list[np.ndarray], filename: str, fps: int = 10):
+    if not frames:
+        return
+    
+    try:
+        imageio.mimsave(filename, frames, fps=fps)
+    except Exception as e:
+        print(f"error: {e}")
 
 class SnakeGame:
 
@@ -378,10 +386,15 @@ class SnakeGame:
         self.display.blit(text, (0, 0))
 
         pygame.display.flip()
+        
+    def screen_to_array(self):
+        if self.display is None:
+            return None
+        data = pygame.surfarray.array3d(pygame.display.get_surface())
+        return np.transpose(data, (1, 0, 2))
 
 
 class QNetwork(nn.Module):
-
     def __init__(self, w=WIDTH, h=HEIGHT, output_size=3):
         super().__init__()
 
@@ -411,11 +424,11 @@ class QNetwork(nn.Module):
         fc1_input_size = self.flattened_size + 4
 
         self.fc1 = nn.Linear(fc1_input_size, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, output_size)
+        self.fc2 = nn.Linear(512, 512)
+        self.fc3 = nn.Linear(512, 256)
+        self.fc4 = nn.Linear(256, output_size)
 
     def forward(self, x_board, x_dir):
-
         x_conv = F.relu(self.conv1(x_board))
         x_conv = self.pool1(x_conv)
 
@@ -430,24 +443,31 @@ class QNetwork(nn.Module):
 
         x_fc = F.relu(self.fc1(x_combined))
         x_fc = F.relu(self.fc2(x_fc))
-        x_out = self.fc3(x_fc)
+        x_fc = F.relu(self.fc3(x_fc))
+        x_out = self.fc4(x_fc)
 
         return x_out
 
     def save(self, file_path=MODEL_PATH):
-
-        print("saving model")
-        torch.save(self.state_dict(), file_path)
+        print(f"saving model to {file_path}")
+        try:
+            torch.save(self.state_dict(), file_path)
+            print("saved model")
+        except Exception as e:
+            print(f"Error saving model: {e}")
 
     def load(self, file_path=MODEL_PATH):
-
         if os.path.exists(file_path):
-            print("loading model")
+            print(f"loading model from {file_path}")
+            try:
 
-            self.load_state_dict(torch.load(file_path, map_location=device))
-            self.eval()
+                self.load_state_dict(torch.load(file_path, map_location=device))
+                self.eval()
+                print("loaded model")
+            except Exception as e:
+                print(f"error: {e}")
         else:
-            print("no model found, starting from scratch")
+            print(f"model not found: {file_path}")
 
 
 class Agent:
@@ -611,17 +631,17 @@ def load_high_score():
         try:
             with open(SCORE_FILE, "r") as f:
                 score = int(f.read())
-                print(f"Loaded previous high score: {score}")
+                print(f"previous high score: {score}")
                 return score
         except ValueError:
             print(
-                f"Warning: High score file '{SCORE_FILE}' is corrupted. Starting from 0."
+                f"error reading {SCORE_FILE}"
             )
             return 0
         except Exception as e:
-            print(f"Warning: Could not read high score file. {e}")
+            print(f"error: {e}")
             return 0
-    print("No high score file found. Starting from 0.")
+    print("high score not found")
     return 0
 
 
@@ -631,16 +651,13 @@ def save_high_score(score):
         with open(SCORE_FILE, "w") as f:
             f.write(str(int(score)))
     except Exception as e:
-        print(f"Warning: Could not save high score to '{SCORE_FILE}'. {e}")
+        print(f"error: {e}")
 
 
 def plot_scores(game_numbers, mean_scores):
 
     if not game_numbers or not mean_scores:
-        print("No data to plot.")
         return
-
-    print("\nTraining finished. Generating plot")
 
     plt.figure(figsize=(10, 5))
     plt.plot(game_numbers, mean_scores)
@@ -671,9 +688,8 @@ def train():
 
     target_update_counter = 0
 
-    print("Starting training")
-    print(f"Controls: Game runs automatically. Close window to quit.")
-    print(f"Model: {agent.policy_net}")
+    print("starting training")
+    print(f"model: {agent.policy_net}")
 
     while True:
 
@@ -724,8 +740,8 @@ def train():
             highscore_timestamp = timestamp(start_time, highscore_time)
 
             print(
-                f"[{curr_timestamp}] ({highscore_timestamp}) Game: {agent.n_games:>6}, Score: {score:>3}, High Score: {high_score:>3}, "
-                f"Epsilon: {agent.epsilon:.4f}, Mean Score: {mean_score:.2f}"
+                f"[{curr_timestamp}] ({highscore_timestamp}) Game: {agent.n_games:>6}, Score: {score:>3}, High: {high_score:>3}, "
+                f"Epsilon: {agent.epsilon:.4f}, Mean: {mean_score:.2f}"
             )
 
 
@@ -737,9 +753,8 @@ def show():
 
     game = SnakeGame(render_mode=True)
 
-    print("Starting show mode")
-    print(f"Model: {agent.policy_net}")
-    print("Close window to quit.")
+    print("starting show mode")
+    print(f"model: {agent.policy_net}")
 
     total_score = 0
     game_count = 0
@@ -757,8 +772,28 @@ def show():
             game_count += 1
             print(f"Game: {game_count}, Score: {score}")
             total_score += score
-            print(f"    Avg Score: {total_score / game_count:.2f}")
+            print(f"    Avg: {total_score / game_count:.2f}")
 
+def gif():
+    global SHOW_SPEED
+    
+    SHOW_SPEED = 1000
+    agent = Agent()
+    game = SnakeGame()
+    
+    screens = []
+    
+    while True:
+        state_old = game.get_state()
+        final_move = agent.get_action(state_old, train_mode=False)
+        _, done, _ = game.step(final_move)
+        
+        screens.append(game.screen_to_array())
+        
+        if done:
+            break
+        
+    make_gif(screens, GIF_PATH, fps=10)
 
 if __name__ == "__main__":
     mode = "train"
@@ -767,12 +802,15 @@ if __name__ == "__main__":
             mode = "show"
         elif sys.argv[1].lower() == "train":
             mode = "train"
+        elif sys.argv[1].lower() == "gif":
+            mode = "gif"
         else:
-            print(f"Unknown mode '{sys.argv[1]}'. Use 'train' or 'show'.")
             sys.exit()
 
-    print(f"Running in {mode} mode")
+    print(f"mode: {mode}")
     if mode == "train":
         train()
     elif mode == "show":
         show()
+    elif mode == "gif":
+        gif()
