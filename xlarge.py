@@ -12,6 +12,7 @@ from collections import namedtuple, deque
 import atexit
 import matplotlib.pyplot as plt
 import datetime
+from epsilon_generator import EpsilonExponential, EpsilonLinear, EpsilonFixed, EpsilonGenerator
 
 pygame.init()
 font = pygame.font.Font(None, 25)
@@ -32,8 +33,8 @@ COLOR_HEAD = (255, 255, 255)
 COLOR_TAIL = (80, 80, 80)
 
 BLOCK_SIZE = 20
-WIDTH = 30
-HEIGHT = 20
+WIDTH = 17
+HEIGHT = 15
 SHOW_SPEED = 15
 
 
@@ -44,13 +45,19 @@ LEARNING_RATE = 0.0001
 GAMMA = 0.9
 MODEL_PATH = f"./snake_{HEIGHT}_{WIDTH}_NL{NUM_LAYERS}_v67_model.pth"
 SCORE_FILE = f"./highscore_{HEIGHT}_{WIDTH}_NL{NUM_LAYERS}_v67.txt"
-TRAIN_EVERY_N_GAMES = 10
+TRAIN_EVERY_N_GAMES = 1
+TARGET_UPDATE_FREQ = 50
 
-INITIAL_EPSILON = 0.3
-FINAL_EPSILON = 0.01
-EPSILON_DECAY_GAMES = 50000
-
-DECAY_RATE = (FINAL_EPSILON / INITIAL_EPSILON) ** (1 / EPSILON_DECAY_GAMES)
+EPSILON_GENERATOR = EpsilonGenerator(
+    schedules=[
+        EpsilonExponential(st=1.0, ed=0.01, steps=10000),
+        EpsilonExponential(st=0.8, ed=0.01, steps=10000),
+        EpsilonExponential(st=0.6, ed=0.01, steps=10000),
+        EpsilonExponential(st=0.4, ed=0.01, steps=10000),
+        EpsilonExponential(st=0.2, ed=0.01, steps=10000),
+    ],
+    final_value=0.01,
+)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device} (version: {torch.version.cuda})")
@@ -439,7 +446,8 @@ class QNetwork(nn.Module):
 class Agent:
     def __init__(self):
         self.n_games = 0
-        self.epsilon = INITIAL_EPSILON
+        self.epsilon = EPSILON_GENERATOR
+        self._epsilon = 0.0
         self.gamma = GAMMA
         self.memory = deque(maxlen=MAX_MEMORY)
 
@@ -554,14 +562,8 @@ class Agent:
 
         use_random_move = False
         if train_mode:
-            if self.n_games < EPSILON_DECAY_GAMES:
-                self.epsilon = max(
-                    FINAL_EPSILON, INITIAL_EPSILON * (DECAY_RATE**self.n_games)
-                )
-            else:
-                self.epsilon = FINAL_EPSILON
-                
-            if random.random() < self.epsilon:
+            self._epsilon = self.epsilon.get_nth_epsilon(self.n_games)
+            if random.random() < self._epsilon:
                 use_random_move = True
 
         if use_random_move:
@@ -678,10 +680,10 @@ def train():
             if agent.n_games % TRAIN_EVERY_N_GAMES == 0:
                 agent.train_long_memory()
 
-            target_update_counter += 1
-            if target_update_counter % 10 == 0:
+            if target_update_counter % TARGET_UPDATE_FREQ == 0:
                 agent.target_net.load_state_dict(agent.policy_net.state_dict())
                 print("updating target network")
+            target_update_counter += 1
 
             if score > high_score:
                 high_score = score
@@ -701,7 +703,7 @@ def train():
 
             print(
                 f"[{curr_timestamp}] ({highscore_timestamp}) Game: {agent.n_games:>6}, Score: {score:>3}, High Score: {high_score:>3}, "
-                f"Epsilon: {agent.epsilon:.4f}, Mean Score: {mean_score:.2f}"
+                f"Epsilon: {agent._epsilon:.4f}, Mean Score: {mean_score:.2f}"
             )
 
 
