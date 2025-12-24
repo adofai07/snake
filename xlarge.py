@@ -50,9 +50,11 @@ TARGET_UPDATE_FREQ = 50
 
 EPSILON_GENERATOR = EpsilonGenerator(
     schedules=[
-        EpsilonExponential(st=1.0, ed=0.1, steps=10),
-        EpsilonExponential(st=1.0, ed=0.1, steps=10),
-        EpsilonExponential(st=1.0, ed=0.1, steps=10000),
+        EpsilonExponential(st=1.0, ed=0.01, steps=10000),
+        EpsilonExponential(st=0.8, ed=0.01, steps=10000),
+        EpsilonExponential(st=0.6, ed=0.01, steps=10000),
+        EpsilonExponential(st=0.4, ed=0.01, steps=10000),
+        EpsilonExponential(st=0.2, ed=0.01, steps=10000),
     ],
     final_value=0.01,
 )
