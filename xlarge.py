@@ -44,16 +44,16 @@ LEARNING_RATE = 0.0001
 GAMMA = 0.9
 MODEL_PATH = f"./snake_{HEIGHT}_{WIDTH}_NL{NUM_LAYERS}_v67_model.pth"
 SCORE_FILE = f"./highscore_{HEIGHT}_{WIDTH}_NL{NUM_LAYERS}_v67.txt"
-TRAIN_EVERY_N_GAMES = 1
+TRAIN_EVERY_N_GAMES = 10
 
-INITIAL_EPSILON = 1.0
+INITIAL_EPSILON = 0.3
 FINAL_EPSILON = 0.01
-EPSILON_DECAY_GAMES = 20000
+EPSILON_DECAY_GAMES = 50000
 
 DECAY_RATE = (FINAL_EPSILON / INITIAL_EPSILON) ** (1 / EPSILON_DECAY_GAMES)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
+print(f"Using device: {device} (version: {torch.version.cuda})")
 print(f"Network Depth: {NUM_LAYERS} layers")
 
 
@@ -554,9 +554,13 @@ class Agent:
 
         use_random_move = False
         if train_mode:
-            self.epsilon = max(
-                FINAL_EPSILON, INITIAL_EPSILON * (DECAY_RATE**self.n_games)
-            )
+            if self.n_games < EPSILON_DECAY_GAMES:
+                self.epsilon = max(
+                    FINAL_EPSILON, INITIAL_EPSILON * (DECAY_RATE**self.n_games)
+                )
+            else:
+                self.epsilon = FINAL_EPSILON
+                
             if random.random() < self.epsilon:
                 use_random_move = True
 
@@ -615,6 +619,13 @@ def plot_scores(game_numbers, mean_scores):
 
     plt.figure(figsize=(10, 5))
     plt.plot(game_numbers, mean_scores)
+    import matplotlib.ticker as ticker
+
+    plt.gca().xaxis.set_major_formatter(
+        ticker.FuncFormatter(
+            lambda x, pos: f"{int(x/1000)}k" if x >= 1000 else f"{int(x)}"
+        )
+    )
     plt.title("Training Progress: Mean Score vs. Games Played")
     plt.xlabel("Number of Games")
     plt.ylabel("Mean Score (avg. of last 100)")
