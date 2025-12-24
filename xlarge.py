@@ -46,6 +46,7 @@ GAMMA = 0.9
 MODEL_PATH = f"./snake_{HEIGHT}_{WIDTH}_NL{NUM_LAYERS}_v67_model.pth"
 SCORE_FILE = f"./highscore_{HEIGHT}_{WIDTH}_NL{NUM_LAYERS}_v67.txt"
 TRAIN_EVERY_N_GAMES = 1
+TARGET_UPDATE_FREQ = 50
 
 EPSILON_GENERATOR = EpsilonGenerator(
     schedules=[
@@ -670,7 +671,7 @@ def train():
             if agent.n_games % TRAIN_EVERY_N_GAMES == 0:
                 agent.train_long_memory()
 
-            if target_update_counter % 10 == 0:
+            if target_update_counter % TARGET_UPDATE_FREQ == 0:
                 agent.target_net.load_state_dict(agent.policy_net.state_dict())
                 print("updating target network")
             target_update_counter += 1
